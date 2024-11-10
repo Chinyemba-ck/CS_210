@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Appointment Booking</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="container mt-5">
+    <h2 class="mb-4">Book an Appointment</h2>
+
+    {% with messages = get_flashed_messages() %}
+        {% if messages %}
+            {% for message in messages %}
+                <div class="alert alert-info">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <form method="POST" class="needs-validation" novalidate>
+        <div class="row g-3">
+            <div class="col-md-6">
+                <label for="first_name" class="form-label">First Name</label>
+                <input type="text" class="form-control" id="first_name" name="first_name" required>
+            </div>
+
+            <div class="col-md-6">
+                <label for="last_name" class="form-label">Last Name</label>
+                <input type="text" class="form-control" id="last_name" name="last_name" required>
+            </div>
+
+            <div class="col-md-6">
+                <label for="mobile" class="form-label">Mobile Number</label>
+                <input type="tel" class="form-control" id="mobile" name="mobile" required>
+            </div>
+
+            <div class="col-md-6">
+                <label for="email" class="form-label">Email Address</label>
+                <input type="email" class="form-control" id="email" name="email" required>
+            </div>
+
+            <div class="col-12">
+                <label for="address" class="form-label">Address</label>
+                <textarea class="form-control" id="address" name="address" rows="3" required></textarea>
+            </div>
+
+            <div class="col-md-6">
+                <label for="dob" class="form-label">Date of Birth</label>
+                <input type="date" class="form-control" id="dob" name="dob" required>
+            </div>
+
+            <div class="col-md-6">
+                <label for="gender" class="form-label">Gender</label>
+                <select class="form-select" id="gender" name="gender" required>
+                    <option value="">Choose...</option>
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                    <option value="other">Other</option>
+                </select>
+            </div>
+
+            <div class="col-md-6">
+                <label for="doctor" class="form-label">Select Doctor</label>
+                <select class="form-select" id="doctor" name="doctor" required onchange="updateTimeSlots()">
+                    <option value="">Choose...</option>
+                    {% for doctor in doctors %}
+                        <option value="{{ doctor }}">{{ doctor }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="col-md-6">
+                <label for="time_slot" class="form-label">Select Time</label>
+                <select class="form-select" id="time_slot" name="time_slot" required>
+                    <option value="">Choose a doctor first</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="mt-4">
+            <button type="submit" class="btn btn-primary">Book Appointment</button>
+        </div>
+    </form>
+
+    <script>
+        function updateTimeSlots() {
+            const doctor = document.getElementById('doctor').value;
+            const timeSlotSelect = document.getElementById('time_slot');
+
+            if (doctor) {
+                fetch(`/get_available_slots/${doctor}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        timeSlotSelect.innerHTML = '<option value="">Choose...</option>';
+                        data.slots.forEach(slot => {
+                            const option = document.createElement('option');
+                            option.value = slot;
+                            option.textContent = slot;
+                            timeSlotSelect.appendChild(option);
+                        });
+                    });
+            } else {
+                timeSlotSelect.innerHTML = '<option value="">Choose a doctor first</option>';
+            }
+        }
+    </script>
+</body>
+</html>

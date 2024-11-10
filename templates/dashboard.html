@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Appointment System</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <nav class="col-md-3 col-lg-2 d-md-block bg-light sidebar p-4">
+                <div class="position-sticky">
+                    <h4>{{ user['First_Name'] }} {{ user['Last_Name'] }}</h4>
+                    <hr>
+                    <div class="mb-3">
+                        <button class="btn btn-link text-decoration-none" data-bs-toggle="collapse" data-bs-target="#profileForm">
+                            Edit Profile
+                        </button>
+                    </div>
+                    <div class="mb-3">
+                        <a href="{{ url_for('logout') }}" class="btn btn-danger">Logout</a>
+                    </div>
+
+                    <!-- Profile Edit Form -->
+                    <div class="collapse" id="profileForm">
+                        <form method="POST" action="{{ url_for('update_profile') }}">
+                            <div class="mb-3">
+                                <label for="edit_first_name" class="form-label">First Name</label>
+                                <input type="text" class="form-control" id="edit_first_name" name="first_name"
+                                       value="{{ user['First_Name'] }}" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="edit_last_name" class="form-label">Last Name</label>
+                                <input type="text" class="form-control" id="edit_last_name" name="last_name"
+                                       value="{{ user['Last_Name'] }}" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="edit_mobile" class="form-label">Mobile</label>
+                                <input type="tel" class="form-control" id="edit_mobile" name="mobile"
+                                       value="{{ user['Mobile_Number'] }}" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="edit_address" class="form-label">Address</label>
+                                <textarea class="form-control" id="edit_address" name="address"
+                                          rows="3" required>{{ user['Address'] }}</textarea>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Update Profile</button>
+                        </form>
+                    </div>
+                </div>
+            </nav>
+
+            <!-- Main content -->
+            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4 py-4">
+                {% with messages = get_flashed_messages() %}
+                    {% if messages %}
+                        {% for message in messages %}
+                            <div class="alert alert-info">{{ message }}</div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+
+                <h2>Your Appointments</h2>
+                {% if appointments %}
+                    <div class="table-responsive">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Doctor</th>
+                                    <th>Time</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for appointment in appointments %}
+                                <tr>
+                                    <td>{{ appointment.Doctor }}</td>
+                                    <td>{{ appointment.Time }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p>No appointments scheduled.</p>
+                {% endif %}
+
+                <h3 class="mt-4">Book New Appointment</h3>
+                <form method="POST" action="{{ url_for('book_appointment') }}" class="row g-3">
+                    <div class="col-md-6">
+                        <label for="doctor" class="form-label">Select Doctor</label>
+                        <select class="form-select" id="doctor" name="doctor" required onchange="updateTimeSlots()">
+                            <option value="">Choose...</option>
+                            {% for doctor in doctors %}
+                                <option value="{{ doctor }}">{{ doctor }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="time_slot" class="form-label">Select Time</label>
+                        <select class="form-select" id="time_slot" name="time_slot" required>
+                            <option value="">Choose a doctor first</option>
+                        </select>
+                    </div>
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-primary">Book Appointment</button>
+                    </div>
+                </form>
+            </main>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function updateTimeSlots() {
+            const doctor = document.getElementById('doctor').value;
+            const timeSlotSelect = document.getElementById('time_slot');
+
+            if (doctor) {
+                fetch(`/get_available_slots/${doctor}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        timeSlotSelect.innerHTML = '<option value="">Choose...</option>';
+                        data.slots.forEach(slot => {
+                            const option = document.createElement('option');
+                            option.value = slot;
+                            option.textContent = slot;
+                            timeSlotSelect.appendChild(option);
+                        });
+                    });
+            } else {
+                timeSlotSelect.innerHTML = '<option value="">Choose a doctor first</option>';
+            }
+        }
+    </script>
+</body>
+</html
+
