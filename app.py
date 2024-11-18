@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session
-from datetime import datetime, timedelta
+from datetime import datetime  # Remove timedelta since it's not used
 from functools import wraps
 import csv
 import os
@@ -20,7 +20,7 @@ TIME_SLOTS = [
     for minute in range(0, 60, 30)
 ]
 
-# File paths - using absolute paths
+# File paths - using absolute paths for PythonAnywhere
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 USERS_CSV = os.path.join(BASE_DIR, 'users.csv')
 APPOINTMENTS_CSV = os.path.join(BASE_DIR, 'appointments.csv')
@@ -35,42 +35,63 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-def initialize_csv_files():
-    # Create users.csv if it doesn't exist
-    if not os.path.exists(USERS_CSV):
-        with open(USERS_CSV, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow(['Email', 'Password', 'First_Name', 'Last_Name',
-                           'Mobile_Number', 'Address'])
-        logger.info(f"Created users.csv at {USERS_CSV}")
+def check_file_permissions():
+    """Check if necessary files are accessible and have correct permissions"""
+    files = [USERS_CSV, APPOINTMENTS_CSV]
+    for file_path in files:
+        dir_path = os.path.dirname(file_path)
+        try:
+            # Check if directory exists and is writable
+            if not os.path.exists(dir_path):
+                os.makedirs(dir_path)
+            # Create file if it doesn't exist
+            if not os.path.exists(file_path):
+                open(file_path, 'a').close()
+            # Check if file is readable and writable
+            if not os.access(file_path, os.R_OK | os.W_OK):
+                logger.error(f"Permission denied for {file_path}")
+                return False
+        except Exception as e:
+            logger.error(f"Error checking permissions: {e}")
+            return False
+    return True
 
-    # Create appointments.csv if it doesn't exist
-    if not os.path.exists(APPOINTMENTS_CSV):
-        with open(APPOINTMENTS_CSV, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow(['Doctor', 'Time', 'Patient_Email', 'Patient_Name'])
-        logger.info(f"Created appointments.csv at {APPOINTMENTS_CSV}")
+def initialize_csv_files():
+    """Initialize CSV files with headers if they don't exist"""
+    try:
+        # Create users.csv if it doesn't exist
+        if not os.path.exists(USERS_CSV):
+            with open(USERS_CSV, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(['Email', 'Password', 'First_Name', 'Last_Name',
+                               'Mobile_Number', 'Address'])
+            logger.info(f"Created users.csv at {USERS_CSV}")
+
+        # Create appointments.csv if it doesn't exist
+        if not os.path.exists(APPOINTMENTS_CSV):
+            with open(APPOINTMENTS_CSV, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(['Doctor', 'Time', 'Patient_Email', 'Patient_Name', 'Booking_Time'])
+            logger.info(f"Created appointments.csv at {APPOINTMENTS_CSV}")
+    except Exception as e:
+        logger.error(f"Error initializing CSV files: {e}")
+        raise
 
 def get_user_details(email):
+    """Get user details from users.csv"""
     try:
-        # Debug print the file contents
-        with open(USERS_CSV, 'r', encoding='utf-8') as f:
-            content = f.read()
-            logger.debug(f"CSV Content:\n{content}")
-
         with open(USERS_CSV, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
             for row in reader:
-                logger.debug(f"Comparing: '{row['Email'].strip()}' with '{email.strip()}'")
                 if row['Email'].strip() == email.strip():
                     return {k: v.strip() for k, v in row.items()}
         logger.warning(f"User not found: {email}")
     except Exception as e:
         logger.error(f"Error reading user details: {e}")
-        logger.exception("Full traceback:")
     return None
 
 def update_user_details(email, details):
+    """Update user details in users.csv"""
     try:
         rows = []
         updated = False
@@ -93,9 +114,73 @@ def update_user_details(email, details):
         logger.warning(f"No user found to update: {email}")
     except Exception as e:
         logger.error(f"Error updating user details: {e}")
-        logger.exception("Full traceback:")
     return False
 
+def get_user_appointments(email):
+    """Get appointments for a specific user"""
+    appointments = []
+    try:
+        if os.path.exists(APPOINTMENTS_CSV):
+            with open(APPOINTMENTS_CSV, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if row['Patient_Email'].strip() == email.strip():
+                        appointments.append(row)
+    except Exception as e:
+        logger.error(f"Error getting appointments: {e}")
+    return appointments
+
+def is_time_slot_available(doctor, time_slot):
+    """Check if a time slot is available for a doctor"""
+    try:
+        if os.path.exists(APPOINTMENTS_CSV):
+            with open(APPOINTMENTS_CSV, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if row['Doctor'] == doctor and row['Time'] == time_slot:
+                        return False
+    except Exception as e:
+        logger.error(f"Error checking time slot: {e}")
+    return True
+
+def book_appointment_helper(doctor, time_slot, user_email, user_name):
+    """Helper function to handle appointment booking with proper file handling"""
+    try:
+        # First check if the slot is still available
+        if not is_time_slot_available(doctor, time_slot):
+            return False, "Time slot no longer available"
+
+        # Read existing appointments to memory
+        appointments = []
+        headers = ['Doctor', 'Time', 'Patient_Email', 'Patient_Name', 'Booking_Time']
+
+        if os.path.exists(APPOINTMENTS_CSV):
+            with open(APPOINTMENTS_CSV, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                appointments = list(reader)
+
+        # Add new appointment
+        new_appointment = {
+            'Doctor': doctor,
+            'Time': time_slot,
+            'Patient_Email': user_email,
+            'Patient_Name': user_name,
+            'Booking_Time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+        appointments.append(new_appointment)
+
+        # Write all appointments back to file
+        with open(APPOINTMENTS_CSV, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=headers)
+            writer.writeheader()
+            writer.writerows(appointments)
+
+        return True, "Appointment booked successfully"
+    except Exception as e:
+        logger.error(f"Error in book_appointment_helper: {e}")
+        return False, str(e)
+
+# Routes
 @app.route('/')
 def index():
     if 'user_email' in session:
@@ -151,7 +236,6 @@ def signup():
             return redirect(url_for('login'))
         except Exception as e:
             logger.error(f"Error in signup: {e}")
-            logger.exception("Full traceback:")
             flash('Registration failed. Please try again.')
 
     return render_template('signup.html')
@@ -162,17 +246,8 @@ def login():
         email = request.form['email'].strip()
         password = request.form['password'].strip()
 
-        logger.debug(f"Login attempt for email: {email}")
-
         try:
-            # Debug print the contents of users.csv
-            with open(USERS_CSV, 'r', encoding='utf-8') as f:
-                content = f.read()
-                logger.debug(f"Users CSV content:\n{content}")
-
             user = get_user_details(email)
-            logger.debug(f"Retrieved user details: {user}")
-
             if user and user['Password'] == password:
                 session['user_email'] = email
                 logger.info(f"Successful login for user: {email}")
@@ -183,7 +258,6 @@ def login():
                 flash('Invalid email or password')
         except Exception as e:
             logger.error(f"Login error: {e}")
-            logger.exception("Full traceback:")
             flash('An error occurred during login. Please try again.')
 
     return render_template('login.html')
@@ -207,33 +281,6 @@ def dashboard():
                              time_slots=TIME_SLOTS)
     return redirect(url_for('logout'))
 
-def get_user_appointments(email):
-    appointments = []
-    try:
-        if os.path.exists(APPOINTMENTS_CSV):
-            with open(APPOINTMENTS_CSV, 'r', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    if row['Patient_Email'].strip() == email.strip():
-                        appointments.append(row)
-    except Exception as e:
-        logger.error(f"Error getting appointments: {e}")
-        logger.exception("Full traceback:")
-    return appointments
-
-def is_time_slot_available(doctor, time_slot):
-    try:
-        if os.path.exists(APPOINTMENTS_CSV):
-            with open(APPOINTMENTS_CSV, 'r', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    if row['Doctor'] == doctor and row['Time'] == time_slot:
-                        return False
-    except Exception as e:
-        logger.error(f"Error checking time slot: {e}")
-        logger.exception("Full traceback:")
-    return True
-
 @app.route('/book_appointment', methods=['POST'])
 @login_required
 def book_appointment():
@@ -241,25 +288,22 @@ def book_appointment():
     time_slot = request.form['time_slot']
     user = get_user_details(session['user_email'])
 
-    if not is_time_slot_available(doctor, time_slot):
-        flash('This time slot is no longer available.')
+    if not user:
+        flash('User details not found.')
         return redirect(url_for('dashboard'))
 
-    try:
-        with open(APPOINTMENTS_CSV, 'a', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                doctor,
-                time_slot,
-                session['user_email'],
-                f"{user['First_Name']} {user['Last_Name']}"
-            ])
+    success, message = book_appointment_helper(
+        doctor,
+        time_slot,
+        session['user_email'],
+        f"{user['First_Name']} {user['Last_Name']}"
+    )
+
+    flash(message)
+    if success:
         logger.info(f"Appointment booked for {session['user_email']}")
-        flash('Appointment booked successfully!')
-    except Exception as e:
-        logger.error(f"Error booking appointment: {e}")
-        logger.exception("Full traceback:")
-        flash('Failed to book appointment. Please try again.')
+    else:
+        logger.error(f"Failed to book appointment: {message}")
 
     return redirect(url_for('dashboard'))
 
@@ -286,29 +330,51 @@ def available_slots(doctor):
     return jsonify({'slots': slots})
 
 @app.route('/api/appointments')
-def get_appointments():
-    appointments = []
+def get_appointments_api():
     try:
+        appointments = []
         if os.path.exists(APPOINTMENTS_CSV):
             with open(APPOINTMENTS_CSV, 'r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
                 appointments = list(reader)
+
+        # Enhanced response format
+        response = {
+            'status': 'success',
+            'data': {
+                'appointments': [{
+                    'id': idx,
+                    'doctor': app['Doctor'],
+                    'time': app['Time'],
+                    'patient': {
+                        'email': app['Patient_Email'],
+                        'name': app['Patient_Name']
+                    },
+                    'booking_time': app.get('Booking_Time', ''),
+                    'status': 'scheduled'
+                } for idx, app in enumerate(appointments, 1)],
+                'meta': {
+                    'total': len(appointments),
+                    'timestamp': datetime.now().isoformat()
+                }
+            }
+        }
+
+        return jsonify(response)
     except Exception as e:
         logger.error(f"Error in API: {e}")
-        logger.exception("Full traceback:")
+        return jsonify({
+            'status': 'error',
+            'message': str(e),
+            'data': None
+        }), 500
 
-    return jsonify({
-        'appointments': appointments,
-        'total': len(appointments)
-    })
-
-if __name__ == '__main__':
-    # Create a fresh users.csv file
-    initialize_csv_files()
-
-    # Debug: Print current working directory and file paths
-    logger.debug(f"Current working directory: {os.getcwd()}")
-    logger.debug(f"Users CSV path: {USERS_CSV}")
-    logger.debug(f"Appointments CSV path: {APPOINTMENTS_CSV}")
-
-    app.run(debug=True)
+# Add startup check
+@app.before_request
+def startup_check():
+    if not getattr(app, '_got_first_request', False):
+        if not check_file_permissions():
+            logger.error("File permission check failed!")
+            raise PermissionError("Cannot access required files")
+        initialize_csv_files()
+        app._got_first_request = True
