@@ -13,6 +13,8 @@
             <nav class="col-md-3 col-lg-2 d-md-block bg-light sidebar p-4">
                 <div class="position-sticky">
                     <h4>{{ user['First_Name'] }} {{ user['Last_Name'] }}</h4>
+                    <h6>{{ user['Sex'] }}</h6>
+                    <h6>{{ user['DOB'] }}</h6>
                     <hr>
                     <div class="mb-3">
                         <button class="btn btn-link text-decoration-none" data-bs-toggle="collapse" data-bs-target="#profileForm">
@@ -70,6 +72,7 @@
                                 <tr>
                                     <th>Doctor</th>
                                     <th>Time</th>
+                                    <th>Date</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -77,6 +80,7 @@
                                 <tr>
                                     <td>{{ appointment.Doctor }}</td>
                                     <td>{{ appointment.Time }}</td>
+                                    <td class="fw-bold text-primary">{{ appointment.Date }}</td>
                                 </tr>
                                 {% endfor %}
                             </tbody>
@@ -86,23 +90,32 @@
                     <p>No appointments scheduled.</p>
                 {% endif %}
 
+                <!-- Book New Appointment Section -->
                 <h3 class="mt-4">Book New Appointment</h3>
                 <form method="POST" action="{{ url_for('book_appointment') }}" class="row g-3">
-                    <div class="col-md-6">
+                    <div class="col-md-4">
                         <label for="doctor" class="form-label">Select Doctor</label>
-                        <select class="form-select" id="doctor" name="doctor" required onchange="updateTimeSlots()">
+                        <select class="form-select" id="doctor" name="doctor" required>
                             <option value="">Choose...</option>
                             {% for doctor in doctors %}
                                 <option value="{{ doctor }}">{{ doctor }}</option>
                             {% endfor %}
                         </select>
                     </div>
-                    <div class="col-md-6">
+
+                    <div class="col-md-4">
+                        <label for="appointment_date" class="form-label">Select Date</label>
+                        <input type="date" class="form-control" id="appointment_date" name="appointment_date" required disabled>
+                        <div class="invalid-feedback">Please select a valid weekday within the next 30 days.</div>
+                    </div>
+
+                    <div class="col-md-4">
                         <label for="time_slot" class="form-label">Select Time</label>
-                        <select class="form-select" id="time_slot" name="time_slot" required>
-                            <option value="">Choose a doctor first</option>
+                        <select class="form-select" id="time_slot" name="time_slot" required disabled>
+                            <option value="">Choose date first</option>
                         </select>
                     </div>
+
                     <div class="col-12">
                         <button type="submit" class="btn btn-primary">Book Appointment</button>
                     </div>
@@ -113,27 +126,64 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
     <script>
-        function updateTimeSlots() {
-            const doctor = document.getElementById('doctor').value;
-            const timeSlotSelect = document.getElementById('time_slot');
+        // Set up date constraints
+        const dateInput = document.getElementById('appointment_date');
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const maxDate = new Date();
+        maxDate.setDate(maxDate.getDate() + 30);
 
-            if (doctor) {
-                fetch(`/get_available_slots/${doctor}`)
+        // Format dates for input
+        dateInput.min = tomorrow.toISOString().split('T')[0];
+        dateInput.max = maxDate.toISOString().split('T')[0];
+
+        document.getElementById('doctor').addEventListener('change', function() {
+            const dateInput = document.getElementById('appointment_date');
+            const timeSelect = document.getElementById('time_slot');
+
+            if (this.value) {
+                dateInput.disabled = false;
+            } else {
+                dateInput.disabled = true;
+                dateInput.value = '';
+                timeSelect.disabled = true;
+                timeSelect.innerHTML = '<option value="">Choose date first</option>';
+            }
+        });
+
+        document.getElementById('appointment_date').addEventListener('change', function() {
+            const doctor = document.getElementById('doctor').value;
+            const timeSelect = document.getElementById('time_slot');
+            const selectedDate = new Date(this.value);
+            
+            // Check if selected date is a weekday (0 = Sunday, 6 = Saturday)
+            if (selectedDate.getDay() === 0 || selectedDate.getDay() === 6) {
+                this.classList.add('is-invalid');
+                timeSelect.disabled = true;
+                timeSelect.innerHTML = '<option value="">Choose a valid date first</option>';
+                return;
+            }
+            
+            this.classList.remove('is-invalid');
+            
+            if (this.value) {
+                timeSelect.disabled = false;
+                fetch(`/get_available_slots/${doctor}/${this.value}`)
                     .then(response => response.json())
                     .then(data => {
-                        timeSlotSelect.innerHTML = '<option value="">Choose...</option>';
+                        timeSelect.innerHTML = '<option value="">Choose time...</option>';
                         data.slots.forEach(slot => {
                             const option = document.createElement('option');
                             option.value = slot;
                             option.textContent = slot;
-                            timeSlotSelect.appendChild(option);
+                            timeSelect.appendChild(option);
                         });
                     });
             } else {
-                timeSlotSelect.innerHTML = '<option value="">Choose a doctor first</option>';
+                timeSelect.disabled = true;
+                timeSelect.innerHTML = '<option value="">Choose date first</option>';
             }
-        }
+        });
     </script>
 </body>
-</html
-
+</html>
