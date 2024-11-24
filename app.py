@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session
-from datetime import datetime  # Remove timedelta since it's not used
+from datetime import datetime, timedelta
 from functools import wraps
 import csv
 import os
@@ -20,12 +20,11 @@ TIME_SLOTS = [
     for minute in range(0, 60, 30)
 ]
 
-# File paths - using absolute paths for PythonAnywhere
+# File paths
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 USERS_CSV = os.path.join(BASE_DIR, 'users.csv')
 APPOINTMENTS_CSV = os.path.join(BASE_DIR, 'appointments.csv')
 
-# Login required decorator
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -41,13 +40,10 @@ def check_file_permissions():
     for file_path in files:
         dir_path = os.path.dirname(file_path)
         try:
-            # Check if directory exists and is writable
             if not os.path.exists(dir_path):
                 os.makedirs(dir_path)
-            # Create file if it doesn't exist
             if not os.path.exists(file_path):
                 open(file_path, 'a').close()
-            # Check if file is readable and writable
             if not os.access(file_path, os.R_OK | os.W_OK):
                 logger.error(f"Permission denied for {file_path}")
                 return False
@@ -64,14 +60,16 @@ def initialize_csv_files():
             with open(USERS_CSV, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
                 writer.writerow(['Email', 'Password', 'First_Name', 'Last_Name',
-                               'Mobile_Number', 'Address'])
+                               'Mobile_Number', 'Address', 'DOB', 'Sex'])  # Added DOB and Sex
             logger.info(f"Created users.csv at {USERS_CSV}")
+
 
         # Create appointments.csv if it doesn't exist
         if not os.path.exists(APPOINTMENTS_CSV):
             with open(APPOINTMENTS_CSV, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
-                writer.writerow(['Doctor', 'Time', 'Patient_Email', 'Patient_Name', 'Booking_Time'])
+                writer.writerow(['Doctor', 'Date', 'Time', 'Patient_Email',
+                               'Patient_Name', 'Booking_Time'])
             logger.info(f"Created appointments.csv at {APPOINTMENTS_CSV}")
     except Exception as e:
         logger.error(f"Error initializing CSV files: {e}")
@@ -130,38 +128,50 @@ def get_user_appointments(email):
         logger.error(f"Error getting appointments: {e}")
     return appointments
 
-def is_time_slot_available(doctor, time_slot):
-    """Check if a time slot is available for a doctor"""
+def is_time_slot_available(doctor, date, time_slot):
+    """Check if a time slot is available for a doctor on a specific date"""
     try:
         if os.path.exists(APPOINTMENTS_CSV):
             with open(APPOINTMENTS_CSV, 'r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    if row['Doctor'] == doctor and row['Time'] == time_slot:
+                    if (row['Doctor'] == doctor and
+                        row['Date'] == date and
+                        row['Time'] == time_slot):
                         return False
     except Exception as e:
         logger.error(f"Error checking time slot: {e}")
     return True
 
-def book_appointment_helper(doctor, time_slot, user_email, user_name):
-    """Helper function to handle appointment booking with proper file handling"""
+def get_available_dates():
+    """Return available dates starting from tomorrow up to 30 days"""
+    dates = []
+    start_date = datetime.now().date() + timedelta(days=1)
+    for i in range(30):
+        current_date = start_date + timedelta(days=i)
+        # Exclude weekends (5 = Saturday, 6 = Sunday)
+        if current_date.weekday() not in [5, 6]:
+            dates.append(current_date.strftime('%Y-%m-%d'))
+    return dates
+
+def book_appointment_helper(doctor, date, time_slot, user_email, user_name):
+    """Helper function to handle appointment booking"""
     try:
-        # First check if the slot is still available
-        if not is_time_slot_available(doctor, time_slot):
+        if not is_time_slot_available(doctor, date, time_slot):
             return False, "Time slot no longer available"
 
-        # Read existing appointments to memory
         appointments = []
-        headers = ['Doctor', 'Time', 'Patient_Email', 'Patient_Name', 'Booking_Time']
+        headers = ['Doctor', 'Date', 'Time', 'Patient_Email',
+                  'Patient_Name', 'Booking_Time']
 
         if os.path.exists(APPOINTMENTS_CSV):
             with open(APPOINTMENTS_CSV, 'r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
                 appointments = list(reader)
 
-        # Add new appointment
         new_appointment = {
             'Doctor': doctor,
+            'Date': date,
             'Time': time_slot,
             'Patient_Email': user_email,
             'Patient_Name': user_name,
@@ -169,7 +179,6 @@ def book_appointment_helper(doctor, time_slot, user_email, user_name):
         }
         appointments.append(new_appointment)
 
-        # Write all appointments back to file
         with open(APPOINTMENTS_CSV, 'w', newline='', encoding='utf-8') as f:
             writer = csv.DictWriter(f, fieldnames=headers)
             writer.writeheader()
@@ -198,28 +207,27 @@ def signup():
             return redirect(url_for('signup'))
 
         try:
-            # First check if the file exists and is empty (except for header)
             is_empty = True
             if os.path.exists(USERS_CSV):
                 with open(USERS_CSV, 'r', encoding='utf-8') as f:
                     is_empty = len(f.readlines()) <= 1
 
             if is_empty:
-                # Write with header
                 with open(USERS_CSV, 'w', newline='', encoding='utf-8') as f:
                     writer = csv.writer(f)
                     writer.writerow(['Email', 'Password', 'First_Name', 'Last_Name',
-                                   'Mobile_Number', 'Address'])
+                                   'Mobile_Number', 'Address', 'DOB', 'Sex'])
                     writer.writerow([
                         email,
                         password,
                         request.form['first_name'].strip(),
                         request.form['last_name'].strip(),
                         request.form['mobile'].strip(),
-                        request.form['address'].strip()
+                        request.form['address'].strip(),
+                        request.form['dob'].strip(),
+                        request.form['sex'].strip()
                     ])
             else:
-                # Append without header
                 with open(USERS_CSV, 'a', newline='', encoding='utf-8') as f:
                     writer = csv.writer(f)
                     writer.writerow([
@@ -228,7 +236,9 @@ def signup():
                         request.form['first_name'].strip(),
                         request.form['last_name'].strip(),
                         request.form['mobile'].strip(),
-                        request.form['address'].strip()
+                        request.form['address'].strip(),
+                        request.form['dob'].strip(),
+                        request.form['sex'].strip()
                     ])
 
             logger.info(f"New user registered: {email}")
@@ -239,6 +249,7 @@ def signup():
             flash('Registration failed. Please try again.')
 
     return render_template('signup.html')
+
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -274,17 +285,20 @@ def dashboard():
     user = get_user_details(session['user_email'])
     if user:
         appointments = get_user_appointments(session['user_email'])
+        available_dates = get_available_dates()
         return render_template('dashboard.html',
                              user=user,
                              appointments=appointments,
                              doctors=DOCTORS,
-                             time_slots=TIME_SLOTS)
+                             time_slots=TIME_SLOTS,
+                             available_dates=available_dates)
     return redirect(url_for('logout'))
 
 @app.route('/book_appointment', methods=['POST'])
 @login_required
 def book_appointment():
     doctor = request.form['doctor']
+    date = request.form['appointment_date']
     time_slot = request.form['time_slot']
     user = get_user_details(session['user_email'])
 
@@ -294,6 +308,7 @@ def book_appointment():
 
     success, message = book_appointment_helper(
         doctor,
+        date,
         time_slot,
         session['user_email'],
         f"{user['First_Name']} {user['Last_Name']}"
@@ -314,7 +329,9 @@ def update_profile():
         'First_Name': request.form['first_name'].strip(),
         'Last_Name': request.form['last_name'].strip(),
         'Mobile_Number': request.form['mobile'].strip(),
-        'Address': request.form['address'].strip()
+        'Address': request.form['address'].strip(),
+        'DOB': request.form['dob'].strip(),
+        'Sex': request.form['sex'].strip()
     }
 
     if update_user_details(session['user_email'], details):
@@ -324,10 +341,13 @@ def update_profile():
 
     return redirect(url_for('dashboard'))
 
-@app.route('/get_available_slots/<doctor>')
-def available_slots(doctor):
-    slots = [slot for slot in TIME_SLOTS if is_time_slot_available(doctor, slot)]
+
+@app.route('/get_available_slots/<doctor>/<date>')
+def available_slots(doctor, date):
+    slots = [slot for slot in TIME_SLOTS
+             if is_time_slot_available(doctor, date, slot)]
     return jsonify({'slots': slots})
+
 
 @app.route('/api/appointments')
 def get_appointments_api():
@@ -338,23 +358,36 @@ def get_appointments_api():
                 reader = csv.DictReader(f)
                 appointments = list(reader)
 
-        # Enhanced response format
+        # Get all appointments with patient details
+        enhanced_appointments = []
+        for app in appointments:
+            # Get patient details including DOB and Sex
+            patient_details = get_user_details(app['Patient_Email'])
+
+            enhanced_appointment = {
+                'id': len(enhanced_appointments) + 1,
+                'doctor': app['Doctor'],
+                'date': app['Date'],
+                'time': app['Time'],
+                'patient': {
+                    'email': app['Patient_Email'],
+                    'name': app['Patient_Name'],
+                    'dob': patient_details.get('DOB', '') if patient_details else '',
+                    'sex': patient_details.get('Sex', '') if patient_details else '',
+                    'mobile': patient_details.get('Mobile_Number', '') if patient_details else '',
+                    'address': patient_details.get('Address', '') if patient_details else ''
+                },
+                'booking_time': app.get('Booking_Time', ''),
+                'status': 'scheduled'
+            }
+            enhanced_appointments.append(enhanced_appointment)
+
         response = {
             'status': 'success',
             'data': {
-                'appointments': [{
-                    'id': idx,
-                    'doctor': app['Doctor'],
-                    'time': app['Time'],
-                    'patient': {
-                        'email': app['Patient_Email'],
-                        'name': app['Patient_Name']
-                    },
-                    'booking_time': app.get('Booking_Time', ''),
-                    'status': 'scheduled'
-                } for idx, app in enumerate(appointments, 1)],
+                'appointments': enhanced_appointments,
                 'meta': {
-                    'total': len(appointments),
+                    'total': len(enhanced_appointments),
                     'timestamp': datetime.now().isoformat()
                 }
             }
@@ -369,7 +402,7 @@ def get_appointments_api():
             'data': None
         }), 500
 
-# Add startup check
+
 @app.before_request
 def startup_check():
     if not getattr(app, '_got_first_request', False):
@@ -378,3 +411,6 @@ def startup_check():
             raise PermissionError("Cannot access required files")
         initialize_csv_files()
         app._got_first_request = True
+
+if __name__ == '__main__':
+    app.run(debug=True)
